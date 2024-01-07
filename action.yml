@@ -82,42 +82,6 @@ runs:
       uses: actions/checkout@v4
       with:
         path: firecracker-freebsd
-    
-    - name: Download kernel
-      shell: bash
-      run: wget -q -O /tmp/freebsd-kern.bin ${{ inputs.kernel-url }}
-
-    - name: Download rootfs artifact
-      shell: bash
-      run: |
-        wget -q -O /tmp/freebsd-rootfs.bin.xz ${{ inputs.rootfs-url }}
-        xz -T 0 -d /tmp/freebsd-rootfs.bin.xz
-
-    - name: Download firecracker binary
-      shell: bash
-      run: |
-        wget -q -O /tmp/firecracker ${{ inputs.firecracker-url }}
-        chmod +x /tmp/firecracker
-
-    - name: Download and install SSH keypair
-      shell: sudo bash -e {0}
-      run: |
-        wget -q -O /tmp/freebsd.id_rsa.pub ${{ inputs.ssh-public-key-url }}
-        wget -q -O /tmp/freebsd.id_rsa ${{ inputs.ssh-private-key-url }}
-        chmod 600 /tmp/freebsd.id_rsa
-        install -D -m 700 -t /etc/ssh /tmp/freebsd.id_rsa
-
-    - name: Prepare ssh config
-      shell: sudo bash -e {0}
-      run: |
-        cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
-        Host firecracker
-          Hostname 172.16.0.2
-          User root
-          StrictHostKeyChecking no
-          UserKnownHostsFile /dev/null
-          IdentityFile /etc/ssh/freebsd.id_rsa
-        EOF
 
     - name: Print diagnostic info
       shell: bash
@@ -137,6 +101,33 @@ runs:
     - name: Start Firecracker VM
       shell: sudo bash -e {0}
       run: |
+        kernel_path="$(mktemp)"
+        wget -q -O "$kernel_path" ${{ inputs.kernel-url }}
+        
+        rootfs_path="$(mktemp)"
+        wget -q -O /tmp/freebsd-rootfs.bin.xz ${{ inputs.rootfs-url }}
+        xz -T 0 -d /tmp/freebsd-rootfs.bin.xz
+        mv /tmp/freebsd-rootfs.bin "$rootfs_path"
+
+        firecracker_path="$(mktemp)"
+        wget -q -O "$firecracker_path" ${{ inputs.firecracker-url }}
+        chmod +x "$firecracker_path"
+
+        public_key_path="$(mktemp)"
+        private_key_path="$(mktemp)"
+        wget -q -O "$public_key_path" ${{ inputs.ssh-public-key-url }}
+        wget -q -O "$private_key_path" ${{ inputs.ssh-private-key-url }}
+        install -D -m 600 -t /etc/ssh "$private_key_path"
+
+        cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
+        Host firecracker
+          Hostname 172.16.0.2
+          User root
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+          IdentityFile $private_key_path
+        EOF
+
         sudo setfacl -m u:${USER}:rw /dev/kvm
 
         INET_DEV="eth0"
@@ -164,9 +155,9 @@ runs:
         API_SOCKET="/tmp/firecracker.socket"
         LOGFILE="./firecracker.log"
         
-        KERNEL="/tmp/freebsd-kern.bin"
+        KERNEL="$kernel_path"
         KERNEL_BOOT_ARGS="vfs.root.mountfrom=ufs:/dev/vtbd0"
-        ROOTFS="/tmp/freebsd-rootfs.bin"
+        ROOTFS="$rootfs_path"
         
         # The IP address of a guest is derived from its MAC address with
         # `fcnet-setup.sh`, this has been pre-configured in the guest rootfs. It is
@@ -205,9 +196,9 @@ runs:
         EOF
 
         if [ ${{ inputs.verbose }} = true ]; then
-          /tmp/firecracker --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE &
+          $firecracker_path --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE &
         else
-          /tmp/firecracker --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE > /dev/null 2>&1 &
+          $firecracker_path --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE > /dev/null 2>&1 &
         fi
         firecracker_pid=$!
 
