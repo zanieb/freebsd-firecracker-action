@@ -6,15 +6,23 @@ inputs:
   kernel-url:
     type: string
     required: false
-    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/freebsd-kern.bin
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.1.0/freebsd-kern.bin
   rootfs-url:
     type: string
     required: false
-    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/freebsd-rootfs.bin.xz
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.1.0/freebsd-rootfs.bin.xz
   firecracker-url:
     type: string
     required: false
-    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/firecracker
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.1.0/firecracker
+  ssh-public-key-url:
+    type: string
+    required: false
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.1.0/freebsd.id_rsa.pub
+  ssh-private-key-url:
+    type: string
+    required: false
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.1.0/freebsd.id_rsa
   pre-run:
     description: |
       An optional script to run before starting the FreeBSD virtual machine. This script runs on
@@ -74,24 +82,6 @@ runs:
       uses: actions/checkout@v4
       with:
         path: firecracker-freebsd
-
-    - name: Install ssh key
-      shell: sudo bash -e {0}
-      run: |
-        install -D -m 700 -t /etc/ssh firecracker-freebsd/freebsd.id_rsa
-        rm -rf firecracker-freebsd
-    
-    - name: Prepare ssh config
-      shell: sudo bash -e {0}
-      run: |
-        cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
-        Host firecracker
-          Hostname 172.16.0.2
-          User root
-          StrictHostKeyChecking no
-          UserKnownHostsFile /dev/null
-          IdentityFile /etc/ssh/freebsd.id_rsa
-        EOF
     
     - name: Download kernel
       shell: bash
@@ -108,6 +98,26 @@ runs:
       run: |
         wget -q -O /tmp/firecracker ${{ inputs.firecracker-url }}
         chmod +x /tmp/firecracker
+
+    - name: Download and install SSH keypair
+      shell: sudo bash -e {0}
+      run: |
+        wget -q -O /tmp/freebsd.id_rsa.pub ${{ inputs.ssh-public-key-url }}
+        wget -q -O /tmp/freebsd.id_rsa ${{ inputs.ssh-private-key-url }}
+        chmod 600 /tmp/freebsd.id_rsa
+        install -D -m 700 -t /etc/ssh /tmp/freebsd.id_rsa
+
+    - name: Prepare ssh config
+      shell: sudo bash -e {0}
+      run: |
+        cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
+        Host firecracker
+          Hostname 172.16.0.2
+          User root
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+          IdentityFile /etc/ssh/freebsd.id_rsa
+        EOF
 
     - name: Print diagnostic info
       shell: bash
