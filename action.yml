@@ -1,0 +1,241 @@
+name: FreeBSD Firecracker VM
+author: Adam Jensen (@acj)
+description: Launch a FreeBSD VM in Firecracker and run a script inside it
+
+inputs:
+  kernel-url:
+    type: string
+    required: false
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/freebsd-kern.bin
+  rootfs-url:
+    type: string
+    required: false
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/freebsd-rootfs.bin.xz
+  firecracker-url:
+    type: string
+    required: false
+    default: https://github.com/acj/freebsd-firecracker/releases/download/v0.0.10/firecracker
+  pre-run:
+    description: |
+      An optional script to run before starting the FreeBSD virtual machine. This script runs on
+      the host. By default, it copies the contents of the workspace directory into the VM.
+    required: false
+    type: string
+    default: |
+      exclude_path="$(mktemp)"
+      cat <<EOF > $exclude_path
+      .git
+      .github
+      .gitignore
+      .gitmodules
+      LICENSE
+      README.md
+      README.txt
+      README
+      action.yml
+      EOF
+      
+      rsync -r -e "ssh" \
+        --relative \
+        --copy-links \
+        --exclude-from "$exclude_path" \
+        . firecracker:
+      rm -f "$exclude_path"
+  run-in-vm:
+    description: The script to run inside the FreeBSD virtual machine
+    required: true
+    type: string
+  post-run:
+    description: |
+      An optional script to run after the `run-in-vm` script exits. This script runs on the host.
+      By default, it copies the contents of the VM's `/root` directory into the workspace directory.
+    required: false
+    type: string
+    default: |
+      rsync -r -e "ssh" \
+        --relative \
+        --copy-links \
+        --exclude-from "$exclude_path" \
+        firecracker: .
+  continue-on-error:
+    required: false
+    type: boolean
+    default: false
+  verbose:
+    required: false
+    type: boolean
+    default: false
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        path: firecracker-freebsd
+
+    - name: Install ssh key
+      shell: sudo bash -e {0}
+      run: |
+        install -D -m 700 -t /etc/ssh firecracker-freebsd/freebsd.id_rsa
+        rm -rf firecracker-freebsd
+    
+    - name: Prepare ssh config
+      shell: sudo bash -e {0}
+      run: |
+        cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
+        Host firecracker
+          Hostname 172.16.0.2
+          User root
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+          IdentityFile /etc/ssh/freebsd.id_rsa
+        EOF
+    
+    - name: Download kernel
+      shell: bash
+      run: wget -q -O /tmp/freebsd-kern.bin ${{ inputs.kernel-url }}
+
+    - name: Download rootfs artifact
+      shell: bash
+      run: |
+        wget -q -O /tmp/freebsd-rootfs.bin.xz ${{ inputs.rootfs-url }}
+        xz -T 0 -d /tmp/freebsd-rootfs.bin.xz
+
+    - name: Download firecracker binary
+      shell: bash
+      run: |
+        wget -q -O /tmp/firecracker ${{ inputs.firecracker-url }}
+        chmod +x /tmp/firecracker
+
+    - name: Print diagnostic info
+      shell: bash
+      if: inputs.verbose == 'true'
+      run: |
+        echo "CPU info:"
+        cat /proc/cpuinfo
+        echo "Memory info:"
+        cat /proc/meminfo
+        echo "Kernel version:"
+        uname -a
+        echo "Kernel command line:"
+        cat /proc/cmdline
+        echo "Network interfaces:"
+        ip addr show
+
+    - name: Start Firecracker VM
+      shell: sudo bash -e {0}
+      run: |
+        sudo setfacl -m u:${USER}:rw /dev/kvm
+
+        INET_DEV="eth0"
+        TAP_DEV="tap0"
+        TAP_IP="172.16.0.1"
+        MASK_SHORT="/24"
+        
+        # Setup network interface
+        sudo ip link del "$TAP_DEV" 2> /dev/null || true
+        sudo ip tuntap add dev "$TAP_DEV" mode tap
+        sudo ip addr add "${TAP_IP}${MASK_SHORT}" dev "$TAP_DEV"
+        sudo ip link set dev "$TAP_DEV" up
+        
+        # Enable ip forwarding
+        sudo sh -c "echo 1 > /proc/sys/net/ipv4/ip_forward"
+        
+        # Set up microVM internet access
+        sudo iptables -t nat -D POSTROUTING -o "$INET_DEV" -j MASQUERADE || true
+        sudo iptables -D FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT || true
+        sudo iptables -D FORWARD -i tap0 -o "$INET_DEV" -j ACCEPT || true
+        sudo iptables -t nat -A POSTROUTING -o "$INET_DEV" -j MASQUERADE
+        sudo iptables -I FORWARD 1 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        sudo iptables -I FORWARD 1 -i tap0 -o "$INET_DEV" -j ACCEPT
+        
+        API_SOCKET="/tmp/firecracker.socket"
+        LOGFILE="./firecracker.log"
+        
+        KERNEL="/tmp/freebsd-kern.bin"
+        KERNEL_BOOT_ARGS="vfs.root.mountfrom=ufs:/dev/vtbd0"
+        ROOTFS="/tmp/freebsd-rootfs.bin"
+        
+        # The IP address of a guest is derived from its MAC address with
+        # `fcnet-setup.sh`, this has been pre-configured in the guest rootfs. It is
+        # important that `TAP_IP` and `FC_MAC` match this.
+        FC_MAC="06:00:AC:10:00:02"
+
+        touch $LOGFILE
+
+        cat <<EOF > vmconfig.json
+        {
+          "boot-source": {
+            "kernel_image_path": "$KERNEL",
+            "boot_args": "$KERNEL_BOOT_ARGS"
+          },
+          "drives": [
+            {
+              "drive_id": "rootfs",
+              "path_on_host": "$ROOTFS",
+              "is_root_device": true,
+              "is_read_only": false
+            }
+          ],
+          "network-interfaces": [
+              {
+                  "iface_id": "eth0",
+                  "guest_mac": "$FC_MAC",
+                  "host_dev_name": "$TAP_DEV"
+              }
+          ],
+          "machine-config": {
+            "vcpu_count": 2,
+            "mem_size_mib": 5120,
+            "smt": false
+          }
+        }
+        EOF
+
+        if [ ${{ inputs.verbose }} = true ]; then
+          /tmp/firecracker --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE &
+        else
+          /tmp/firecracker --api-sock $API_SOCKET --config-file vmconfig.json --log-path $LOGFILE > /dev/null 2>&1 &
+        fi
+        firecracker_pid=$!
+
+        set +e
+        for i in {1..10}; do
+          ssh firecracker true
+          if [ $? -eq 0 ]; then
+            break
+          fi
+          sleep 1
+        done
+        set -e
+
+        # Disable segmentation offload as workaround for https://github.com/firecracker-microvm/firecracker/issues/3905
+        sudo ethtool -K "$TAP_DEV" tso off
+
+        pre_run_script=$(mktemp)
+        run_in_vm_script=$(mktemp)
+        post_run_script=$(mktemp)
+        echo '${{ inputs.pre-run }}' > $pre_run_script
+        echo '${{ inputs.run-in-vm }}' > $run_in_vm_script
+        echo '${{ inputs.post-run }}' > $post_run_script
+        
+        scp $run_in_vm_script firecracker:/tmp/.fbsd_fc_run_script
+
+        sh -e $pre_run_script
+
+        ssh firecracker 'mkfifo /tmp/.fbsd_fc_exit_code'
+        set +e
+        ssh firecracker 'sh -e /tmp/.fbsd_fc_run_script; echo $? > /tmp/.fbsd_fc_exit_code' &
+        ssh firecracker 'echo "Launched script and waiting for it to exit"; code=$(cat /tmp/.fbsd_fc_exit_code); echo "Script exited with code $code"; exit $code'
+        script_exit_code=$?
+        set -e
+
+        if [ $script_exit_code -eq 0 ] || [ ${{ inputs.continue-on-error }} = true ]; then
+          sh -e $post_run_script
+        fi
+        
+        ssh firecracker reboot || true
+        wait $firecracker_pid
+        exit $script_exit_code
