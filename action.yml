@@ -117,7 +117,7 @@ runs:
         private_key_path="$(mktemp)"
         wget -q -O "$public_key_path" ${{ inputs.ssh-public-key-url }}
         wget -q -O "$private_key_path" ${{ inputs.ssh-private-key-url }}
-        install -D -m 600 -t /etc/ssh "$private_key_path"
+        install -D -o $SUDO_USER -m 600 -T "$private_key_path" /etc/ssh/freebsd.id_rsa
 
         cat <<EOF > /etc/ssh/ssh_config.d/firecracker.conf
         Host firecracker
@@ -125,7 +125,7 @@ runs:
           User root
           StrictHostKeyChecking no
           UserKnownHostsFile /dev/null
-          IdentityFile $private_key_path
+          IdentityFile /etc/ssh/freebsd.id_rsa
         EOF
 
         sudo setfacl -m u:${USER}:rw /dev/kvm
@@ -215,6 +215,9 @@ runs:
         # Disable segmentation offload as workaround for https://github.com/firecracker-microvm/firecracker/issues/3905
         sudo ethtool -K "$TAP_DEV" tso off
 
+    - name: Run user scripts
+      shell: bash -e {0}
+      run: |
         pre_run_script=$(mktemp)
         run_in_vm_script=$(mktemp)
         post_run_script=$(mktemp)

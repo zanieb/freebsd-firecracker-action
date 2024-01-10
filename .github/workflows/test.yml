@@ -15,7 +15,17 @@ jobs:
         with:
           pre-run: touch pre-run
       - run: if [ ! -f pre-run ]; then echo "pre-run should exist"; exit 1; fi
+      - run: if [ "$(id -u)" = "0" ]; then echo "current user should not be root"; exit 1; fi
   
+  pre-run-non-root:
+    name: Pre-run step executes as a user other than root
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          pre-run: if [ "$(id -u)" = "0" ]; then echo "current user should not be root"; exit 1; fi
+
   run-in-vm:
     name: Run-in-vm step executes
     runs-on: ubuntu-22.04
@@ -38,3 +48,12 @@ jobs:
         with:
           post-run: touch post-run
       - run: if [ ! -f post-run ]; then echo "post-run should exist"; exit 1; fi
+
+  post-run-non-root:
+    name: Pre-run step executes as a user other than root
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          post-run: if [ "$(id -u)" = "0" ]; then echo "current user should not be root"; exit 1; fi
