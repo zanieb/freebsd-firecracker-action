@@ -251,14 +251,18 @@ runs:
 
     - name: Run user scripts
       shell: bash -e {0}
+      env:
+        PRE_RUN_SCRIPT: ${{ inputs.pre-run }}
+        RUN_IN_VM_SCRIPT: ${{ inputs.run-in-vm }}
+        POST_RUN_SCRIPT: ${{ inputs.post-run }}
       run: |
         firecracker_pid=$(cat /tmp/firecracker.pid)
         pre_run_script=$(mktemp)
         run_in_vm_script=$(mktemp)
         post_run_script=$(mktemp)
-        echo '${{ inputs.pre-run }}' > $pre_run_script
-        echo '${{ inputs.run-in-vm }}' > $run_in_vm_script
-        echo '${{ inputs.post-run }}' > $post_run_script
+        printf '%s\n' "$PRE_RUN_SCRIPT" > $pre_run_script
+        printf '%s\n' "$RUN_IN_VM_SCRIPT" > $run_in_vm_script
+        printf '%s\n' "$POST_RUN_SCRIPT" > $post_run_script
         
         scp $run_in_vm_script firecracker:/tmp/.fbsd_fc_run_script
 

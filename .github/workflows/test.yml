@@ -48,6 +48,18 @@ jobs:
       - run: if [ ! -f run-in-vm ]; then echo "run-in-vm should exist (copied out of VM)"; exit 1; fi
       - run: if ! grep -q "FreeBSD" run-in-vm; then echo "run-in-vm should contain FreeBSD"; exit 1; fi
 
+  run-in-vm-single-quote:
+    name: Run-in-vm script can contain a single quote
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: ./
+        with:
+          run-in-vm: |
+            echo "It's running inside the VM" > single-quote
+          verbose: true
+      - run: if ! grep -q "It's running inside the VM" single-quote; then echo "single-quote should contain script output"; exit 1; fi
+
   post-run:
     name: Post-run step executes
     runs-on: ubuntu-24.04
