@@ -173,6 +173,30 @@ runs:
         # important that `TAP_IP` and `FC_MAC` match this.
         FC_MAC="06:00:AC:10:00:02"
 
+        cpu_config='{}'
+        if grep -qm1 '^vendor_id[[:space:]]*: GenuineIntel' /proc/cpuinfo \
+          && ! grep -m1 '^model name' /proc/cpuinfo | grep -Eq '[0-9.]+[GMT]Hz'; then
+          echo "Host CPU brand string does not include a frequency; advertising a temporary 4000 MHz base frequency to the guest"
+          # The FreeBSD Firecracker kernel cannot calibrate the TSC until later
+          # in boot. CPUID.16 supplies an approximate frequency for early delays;
+          # FreeBSD recalibrates it once kvmclock is available.
+          cpu_config='{
+            "cpuid_modifiers": [
+              {
+                "leaf": "0x16",
+                "subleaf": "0x0",
+                "flags": 0,
+                "modifiers": [
+                  {
+                    "register": "eax",
+                    "bitmap": "0b00000000000000000000111110100000"
+                  }
+                ]
+              }
+            ]
+          }'
+        fi
+
         cat <<EOF > vmconfig.json
         {
           "boot-source": {
@@ -194,6 +218,7 @@ runs:
                   "host_dev_name": "$TAP_DEV"
               }
           ],
+          "cpu-config": $cpu_config,
           "machine-config": {
             "vcpu_count": 2,
             "mem_size_mib": 5120,
