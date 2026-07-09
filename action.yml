@@ -77,6 +77,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  vcpu-count:
+    description: Number of virtual CPUs assigned to the Firecracker VM
+    required: false
+    type: string
+    default: "2"
   disk-size:
     required: false
     type: string
@@ -195,7 +200,7 @@ runs:
               }
           ],
           "machine-config": {
-            "vcpu_count": 2,
+            "vcpu_count": ${{ inputs.vcpu-count }},
             "mem_size_mib": 5120,
             "smt": false
           }
