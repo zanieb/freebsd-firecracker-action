@@ -177,9 +177,11 @@ runs:
         if grep -qm1 '^vendor_id[[:space:]]*: GenuineIntel' /proc/cpuinfo \
           && ! grep -m1 '^model name' /proc/cpuinfo | grep -Eq '[0-9.]+[GMT]Hz'; then
           echo "Host CPU brand string does not include a frequency; advertising a temporary 4000 MHz base frequency to the guest"
-          # The FreeBSD Firecracker kernel cannot calibrate the TSC until later
-          # in boot. CPUID.16 supplies an approximate frequency for early delays;
-          # FreeBSD recalibrates it once kvmclock is available.
+          # The FreeBSD Firecracker kernel skips early TSC calibration. Firecracker
+          # normally includes the Intel host's brand-string frequency in guest
+          # CPUID, but some GitHub runner CPUs (e.g. 8573C) omit it. That leaves
+          # tsc_freq at zero and panics during LAPIC initialization. Supply a
+          # conservative CPUID.16 value; FreeBSD recalibrates it with kvmclock later.
           cpu_config='{
             "cpuid_modifiers": [
               {
