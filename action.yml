@@ -166,6 +166,22 @@ runs:
         
         KERNEL="$kernel_path"
         KERNEL_BOOT_ARGS="vfs.root.mountfrom=ufs:/dev/vtbd0"
+
+        # Pass the host's TSC frequency (in Hz) so that the patched kernel used by
+        # freebsd-firecracker can use it directly instead of fudging it. Using a real frequency
+        # avoids FreeBSD TSC initialization failures that we've seen on some CPUs.
+        host_tsc_mhz="$(dmesg 2>/dev/null | sed -n 's/.*Refined TSC clocksource calibration: \([0-9.]*\) MHz.*/\1/p' | tail -1)"
+        if [ -z "$host_tsc_mhz" ]; then
+          host_tsc_mhz="$(dmesg 2>/dev/null | sed -n 's/.*Detected \([0-9.]*\) MHz processor.*/\1/p' | tail -1)"
+        fi
+        if [ -n "$host_tsc_mhz" ]; then
+          host_tsc_hz="$(awk "BEGIN{printf \"%d\", $host_tsc_mhz*1000000}")"
+          KERNEL_BOOT_ARGS="$KERNEL_BOOT_ARGS machdep.tsc_freq=$host_tsc_hz"
+          echo "Host TSC frequency: ${host_tsc_mhz} MHz (${host_tsc_hz} Hz)"
+        else
+          echo "⚠️ Warning: could not determine host TSC frequency, which may cause the guest to panic during boot. If you see a panic, try using \`vcpu-count: 1\` as a workaround."
+        fi
+
         ROOTFS="$rootfs_path"
         
         # The IP address of a guest is derived from its MAC address with
