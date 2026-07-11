@@ -76,6 +76,12 @@ The size of the VM's disk image in units recognized by [truncate(1)](https://lin
 
 This can be increased if you need more space inside the VM for larger repositories, builds that produce large output, etc.
 
+### `vcpu-count`
+
+Default: `auto`
+
+The number of vCPUs to expose to the VM. With `auto`, this will be the CI runner's logical core count.
+
 ### `continue-on-error`
 
 Default: `false`

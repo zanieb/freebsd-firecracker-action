@@ -82,6 +82,33 @@ jobs:
           post-run: if [ "$(id -u)" = "0" ]; then echo "current user should not be root"; exit 1; fi
           verbose: true
 
+  vcpu-count-explicit:
+    name: Explicit vcpu-count is honored inside the VM
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: ./
+        with:
+          vcpu-count: 1
+          run-in-vm: sysctl -n hw.ncpu > ncpu
+          verbose: true
+      - run: if [ "$(cat ncpu)" != "1" ]; then echo "VM should report 1 vCPU, got $(cat ncpu)"; exit 1; fi
+
+  vcpu-count-auto:
+    name: Auto vcpu-count matches the runner's logical core count
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: ./
+        with:
+          vcpu-count: auto
+          run-in-vm: sysctl -n hw.ncpu > ncpu
+          verbose: true
+      - run: |
+          expected="$(nproc)"
+          actual="$(cat ncpu)"
+          if [ "$actual" != "$expected" ]; then echo "VM should report $expected vCPU(s), got $actual"; exit 1; fi
+
   resize-disk:
     name: Resize the rootfs filesystem to a given size
     runs-on: ubuntu-24.04

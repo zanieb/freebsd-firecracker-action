@@ -81,6 +81,11 @@ inputs:
     required: false
     type: string
     default: "2G"
+  vcpu-count:
+    description: Number of vCPUs to expose to the VM. Use "auto" to match the host's logical core count.
+    required: false
+    type: string
+    default: "auto"
 
 runs:
   using: "composite"
@@ -183,6 +188,15 @@ runs:
         fi
 
         ROOTFS="$rootfs_path"
+        VCPU_COUNT="${{ inputs.vcpu-count }}"
+        if [ "$VCPU_COUNT" = "auto" ]; then
+          VCPU_COUNT="$(nproc 2>/dev/null || echo 1)"
+        fi
+        if ! [[ "$VCPU_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+          echo "vcpu-count must be a positive integer or auto"
+          exit 1
+        fi
+        echo "Using $VCPU_COUNT vCPU(s)"
         
         # The IP address of a guest is derived from its MAC address with
         # `fcnet-setup.sh`, this has been pre-configured in the guest rootfs. It is
@@ -211,7 +225,7 @@ runs:
               }
           ],
           "machine-config": {
-            "vcpu_count": 2,
+            "vcpu_count": $VCPU_COUNT,
             "mem_size_mib": 5120,
             "smt": false
           }
