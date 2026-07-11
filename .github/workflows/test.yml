@@ -117,5 +117,5 @@ jobs:
       - uses: ./
         with:
           disk-size: 4G
-          run-in-vm: dd if=/dev/zero of=/rootfs.img bs=1M count=3600
+          run-in-vm: dd if=/dev/zero of=/rootfs.img bs=1M count=3500
           verbose: true
